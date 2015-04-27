@@ -2,6 +2,7 @@
 define([
         '../Core/BoundingSphere',
         '../Core/clone',
+        '../Core/combine',
         '../Core/ComponentDatatype',
         '../Core/defaultValue',
         '../Core/defined',
@@ -30,6 +31,7 @@ define([
     ], function(
         BoundingSphere,
         clone,
+        combine,
         ComponentDatatype,
         defaultValue,
         defined,
@@ -84,13 +86,14 @@ define([
      * @param {Object} [options] Object with the following properties:
      * @param {Array|GeometryInstance} [options.geometryInstances] The geometry instances - or a single geometry instance - to render.
      * @param {Appearance} [options.appearance] The appearance used to render the primitive.
+     * @param {Boolean} [options.show=true] Determines if this primitive will be shown.
      * @param {Matrix4} [options.modelMatrix=Matrix4.IDENTITY] The 4x4 transformation matrix that transforms the primitive (all geometry instances) from model to world coordinates.
      * @param {Boolean} [options.vertexCacheOptimize=false] When <code>true</code>, geometry vertices are optimized for the pre and post-vertex-shader caches.
-     * @param {Boolean} [options.show=true] Determines if this primitive will be shown.
      * @param {Boolean} [options.interleave=false] When <code>true</code>, geometry vertex attributes are interleaved, which can slightly improve rendering performance but increases load time.
      * @param {Boolean} [options.compressVertices=true] When <code>true</code>, the geometry vertices are compressed, which will save memory.
      * @param {Boolean} [options.releaseGeometryInstances=true] When <code>true</code>, the primitive does not keep a reference to the input <code>geometryInstances</code> to save memory.
      * @param {Boolean} [options.allowPicking=true] When <code>true</code>, each geometry instance will only be pickable with {@link Scene#pick}.  When <code>false</code>, GPU memory is saved.
+     * @param {Boolean} [options.cull=true] When <code>true</code>, the renderer frustum culls and horizon culls the primitive's commands based on their bounding volume.  Set this to <code>false</code> for a small performance gain if you are manually culling the primitive.
      * @param {Boolean} [options.asynchronous=true] Determines if the primitive will be created asynchronously or block until ready.
      * @param {Boolean} [options.debugShowBoundingVolume=false] For debugging only. Determines if this primitive's commands' bounding spheres are shown.
      *
@@ -201,7 +204,7 @@ define([
          * by {@link Transforms.eastNorthUpToFixedFrame}.
          *
          * <p>
-         * If the model matrix is changed after creation, it only affects primitives with one instance and only in 3D mode.
+         * This property is only supported in 3D mode.
          * </p>
          *
          * @type Matrix4
@@ -233,6 +236,17 @@ define([
         this._compressVertices = defaultValue(options.compressVertices, true);
 
         /**
+         * When <code>true</code>, the renderer frustum culls and horizon culls the primitive's commands
+         * based on their bounding volume.  Set this to <code>false</code> for a small performance gain
+         * if you are manually culling the primitive.
+         *
+         * @type {Boolean}
+         *
+         * @default true
+         */
+        this.cull = defaultValue(options.cull, true);
+
+        /**
          * This property is for debugging only; it is not for production use nor is it optimized.
          * <p>
          * Draws the bounding sphere for each draw command in the primitive.
@@ -251,12 +265,15 @@ define([
         this._vaAttributes = undefined;
         this._error = undefined;
         this._numberOfInstances = 0;
+        this._validModelMatrix = false;
 
-        this._boundingSphere = undefined;
-        this._boundingSphereWC = undefined;
-        this._boundingSphereCV = undefined;
-        this._boundingSphere2D = undefined;
+        this._boundingSpheres = [];
+        this._boundingSphereWC = [];
+        this._boundingSphereCV = [];
+        this._boundingSphere2D = [];
+        this._boundingSphereMorph = [];
         this._perInstanceAttributeLocations = undefined;
+        this._perInstanceAttributeCache = [];
         this._instanceIds = [];
         this._lastPerInstanceAttributeIndex = 0;
         this._dirtyAttributes = [];
@@ -277,6 +294,8 @@ define([
         this._pickCommands = [];
 
         this._createGeometryResults = undefined;
+        this._ready = false;
+        this._readyPromise = when.defer();
     };
 
     defineProperties(Primitive.prototype, {
@@ -388,7 +407,19 @@ define([
          */
         ready : {
             get : function() {
-                return this._state === PrimitiveState.COMPLETE;
+                return this._ready;
+            }
+        },
+
+        /**
+         * Gets a promise that resolves when the primitive is ready to render.
+         * @memberof Primitive.prototype
+         * @type {Promise}
+         * @readonly
+         */
+        readyPromise : {
+            get : function() {
+                return this._readyPromise;
             }
         }
     });
@@ -446,7 +477,9 @@ define([
         return new GeometryInstance({
             geometry : geometry,
             modelMatrix : Matrix4.clone(instance.modelMatrix),
-            attributes : newAttributes
+            attributes : newAttributes,
+            pickPrimitive : instance.pickPrimitive,
+            id : instance.id
         });
     }
 
@@ -653,6 +686,12 @@ define([
         return pickColors;
     }
 
+    function getUniformFunction(uniforms, name) {
+        return function() {
+            return uniforms[name];
+        };
+    }
+
     var numberOfCreationWorkers = Math.max(FeatureDetection.hardwareConcurrency - 1, 1);
     var createGeometryTaskProcessors;
     var combineGeometryTaskProcessor = new TaskProcessor('combineGeometry', Number.POSITIVE_INFINITY);
@@ -665,7 +704,9 @@ define([
      * list the exceptions that may be propagated when the scene is rendered:
      * </p>
      *
-     * @exception {DeveloperError} All instance geometries must have the same primitiveType..
+     * @exception {DeveloperError} All instance geometries must have the same primitiveType.
+     * @exception {DeveloperError} Appearance and material have a uniform with the same name.
+     * @exception {DeveloperError} Primitive.modelMatrix is only supported in 3D mode.
      */
     Primitive.prototype.update = function(context, frameState, commandList) {
         if (((!defined(this.geometryInstances)) && (this._va.length === 0)) ||
@@ -673,6 +714,14 @@ define([
             (!defined(this.appearance)) ||
             (frameState.mode !== SceneMode.SCENE3D && frameState.scene3DOnly) ||
             (!frameState.passes.render && !frameState.passes.pick)) {
+            return;
+        }
+
+        if (defined(this._error)) {
+            throw this._error;
+        }
+
+        if (this._state === PrimitiveState.FAILED) {
             return;
         }
 
@@ -687,6 +736,7 @@ define([
         var j;
         var index;
         var promise;
+        var instance;
         var instances;
         var clonedInstances;
         var geometries;
@@ -697,9 +747,7 @@ define([
 
         if (this._state !== PrimitiveState.COMPLETE && this._state !== PrimitiveState.COMBINED) {
             if (this.asynchronous) {
-                if (this._state === PrimitiveState.FAILED) {
-                    throw this._error;
-                } else if (this._state === PrimitiveState.READY) {
+                if (this._state === PrimitiveState.READY) {
                     instances = (isArray(this.geometryInstances)) ? this.geometryInstances : [this.geometryInstances];
                     this._numberOfInstances = length = instances.length;
 
@@ -708,6 +756,13 @@ define([
                     for (i = 0; i < length; ++i) {
                         geometry = instances[i].geometry;
                         instanceIds.push(instances[i].id);
+
+                        //>>includeStart('debug', pragmas.debug);
+                        if (!defined(geometry._workerName)) {
+                            throw new DeveloperError('_workerName must be defined for asynchronous geometry.');
+                        }
+                        //>>includeEnd('debug');
+
                         subTasks.push({
                             moduleName : geometry._workerName,
                             geometry : geometry
@@ -721,11 +776,41 @@ define([
                         }
                     }
 
+                    var subTask;
                     subTasks = subdivideArray(subTasks, numberOfCreationWorkers);
+
                     for (i = 0; i < subTasks.length; i++) {
+                        var packedLength = 0;
+                        var workerSubTasks = subTasks[i];
+                        var workerSubTasksLength = workerSubTasks.length;
+                        for (j = 0; j < workerSubTasksLength; ++j) {
+                            subTask = workerSubTasks[j];
+                            geometry = subTask.geometry;
+                            if (defined(geometry.constructor.pack)) {
+                                subTask.offset = packedLength;
+                                packedLength += defaultValue(geometry.constructor.packedLength, geometry.packedLength);
+                            }
+                        }
+
+                        var subTaskTransferableObjects;
+
+                        if (packedLength > 0) {
+                            var array = new Float64Array(packedLength);
+                            subTaskTransferableObjects = [array.buffer];
+
+                            for (j = 0; j < workerSubTasksLength; ++j) {
+                                subTask = workerSubTasks[j];
+                                geometry = subTask.geometry;
+                                if (defined(geometry.constructor.pack)) {
+                                    geometry.constructor.pack(geometry, array, subTask.offset);
+                                    subTask.geometry = array;
+                                }
+                            }
+                        }
+
                         promises.push(createGeometryTaskProcessors[i].scheduleTask({
                             subTasks : subTasks[i]
-                        }));
+                        }, subTaskTransferableObjects));
                     }
 
                     this._state = PrimitiveState.CREATING;
@@ -733,9 +818,8 @@ define([
                     when.all(promises, function(results) {
                         that._createGeometryResults = results;
                         that._state = PrimitiveState.CREATED;
-                    }, function(error) {
-                        that._error = error;
-                        that._state = PrimitiveState.FAILED;
+                    }).otherwise(function(error) {
+                        setReady(that, frameState, PrimitiveState.FAILED, error);
                     });
                 } else if (this._state === PrimitiveState.CREATED) {
                     var transferableObjects = [];
@@ -764,23 +848,48 @@ define([
                         that._attributeLocations = result.attributeLocations;
                         that._vaAttributes = result.vaAttributes;
                         that._perInstanceAttributeLocations = result.perInstanceAttributeLocations;
-                        that._state = PrimitiveState.COMBINED;
                         that.modelMatrix = Matrix4.clone(result.modelMatrix, that.modelMatrix);
-                    }, function(error) {
-                        that._error = error;
-                        that._state = PrimitiveState.FAILED;
+                        that._validModelMatrix = !Matrix4.equals(that.modelMatrix, Matrix4.IDENTITY);
+
+                        var validInstancesIndices = packedResult.validInstancesIndices;
+                        var invalidInstancesIndices = packedResult.invalidInstancesIndices;
+                        var instanceIds = that._instanceIds;
+                        var reorderedInstanceIds = new Array(instanceIds.length);
+
+                        var validLength = validInstancesIndices.length;
+                        for (var i = 0; i < validLength; ++i) {
+                            reorderedInstanceIds[i] = instanceIds[validInstancesIndices[i]];
+                        }
+
+                        var invalidLength = invalidInstancesIndices.length;
+                        for (var j = 0; j < invalidLength; ++j) {
+                            reorderedInstanceIds[validLength + j] = instanceIds[invalidInstancesIndices[j]];
+                        }
+
+                        that._instanceIds = reorderedInstanceIds;
+
+                        if (defined(that._geometries)) {
+                            that._state = PrimitiveState.COMBINED;
+                        } else {
+                            setReady(that, frameState, PrimitiveState.FAILED, undefined);
+                        }
+                    }).otherwise(function(error) {
+                        setReady(that, frameState, PrimitiveState.FAILED, error);
                     });
                 }
             } else {
                 instances = (isArray(this.geometryInstances)) ? this.geometryInstances : [this.geometryInstances];
                 this._numberOfInstances = length = instances.length;
-                geometries = new Array(length);
-                clonedInstances = new Array(instances.length);
 
+                geometries = new Array(length);
+                clonedInstances = new Array(length);
+
+                var invalidInstances = [];
+
+                var geometryIndex = 0;
                 for (i = 0; i < length; i++) {
-                    var instance = instances[i];
+                    instance = instances[i];
                     geometry = instance.geometry;
-                    instanceIds.push(instance.id);
 
                     var createdGeometry;
                     if (defined(geometry.attributes) && defined(geometry.primitiveType)) {
@@ -788,13 +897,23 @@ define([
                     } else {
                         createdGeometry = geometry.constructor.createGeometry(geometry);
                     }
-                    geometries[i] = createdGeometry;
-                    clonedInstances[i] = cloneInstance(instance, createdGeometry);
+
+                    if (defined(createdGeometry)) {
+                        geometries[geometryIndex] = createdGeometry;
+                        clonedInstances[geometryIndex++] = cloneInstance(instance, createdGeometry);
+                        instanceIds.push(instance.id);
+                    } else {
+                        invalidInstances.push(instance);
+                    }
                 }
+
+                geometries.length = geometryIndex;
+                clonedInstances.length = geometryIndex;
 
                 var result = PrimitivePipeline.combineGeometry({
                     instances : clonedInstances,
-                    pickIds : allowPicking ? createPickIds(context, this, instances) : undefined,
+                    invalidInstances : invalidInstances,
+                    pickIds : allowPicking ? createPickIds(context, this, clonedInstances) : undefined,
                     ellipsoid : projection.ellipsoid,
                     projection : projection,
                     elementIndexUintSupported : context.elementIndexUint,
@@ -809,7 +928,19 @@ define([
                 this._attributeLocations = result.attributeLocations;
                 this._vaAttributes = result.vaAttributes;
                 this._perInstanceAttributeLocations = result.vaAttributeLocations;
-                this._state = PrimitiveState.COMBINED;
+                this.modelMatrix = Matrix4.clone(result.modelMatrix, this.modelMatrix);
+                this._validModelMatrix = !Matrix4.equals(this.modelMatrix, Matrix4.IDENTITY);
+
+                for (i = 0; i < invalidInstances.length; ++i) {
+                    instance = invalidInstances[i];
+                    instanceIds.push(instance.id);
+                }
+
+                if (defined(this._geometries)) {
+                    this._state = PrimitiveState.COMBINED;
+                } else {
+                    setReady(this, frameState, PrimitiveState.FAILED, undefined);
+                }
             }
         }
 
@@ -818,8 +949,6 @@ define([
         if (this._state === PrimitiveState.COMBINED) {
             geometries = this._geometries;
             var vaAttributes = this._vaAttributes;
-
-            this._boundingSphere = BoundingSphere.clone(geometries[0].boundingSphere);
 
             var va = [];
             length = geometries.length;
@@ -841,6 +970,23 @@ define([
                     interleave : this._interleave,
                     vertexArrayAttributes : attributes
                 }));
+
+                this._boundingSpheres.push(BoundingSphere.clone(geometry.boundingSphere));
+                this._boundingSphereWC.push(new BoundingSphere());
+
+                if (!scene3DOnly) {
+                    var center = geometry.boundingSphereCV.center;
+                    var x = center.x;
+                    var y = center.y;
+                    var z = center.z;
+                    center.x = z;
+                    center.y = x;
+                    center.z = y;
+
+                    this._boundingSphereCV.push(BoundingSphere.clone(geometry.boundingSphereCV));
+                    this._boundingSphere2D.push(new BoundingSphere());
+                    this._boundingSphereMorph.push(new BoundingSphere());
+                }
             }
 
             this._va = va;
@@ -851,7 +997,7 @@ define([
             }
 
             this._geometries = undefined;
-            this._state = PrimitiveState.COMPLETE;
+            setReady(this, frameState, PrimitiveState.COMPLETE, undefined);
         }
 
         if (!this.show || this._state !== PrimitiveState.COMPLETE) {
@@ -961,7 +1107,25 @@ define([
         var pickCommands = this._pickCommands;
 
         if (createRS || createSP) {
-            var uniforms = (defined(material)) ? material._uniforms : undefined;
+            // Create uniform map by combining uniforms from the appearance and material if either have uniforms.
+            var materialUniformMap = defined(material) ? material._uniforms : undefined;
+            var appearanceUniformMap = {};
+            var appearanceUniforms = appearance.uniforms;
+            if (defined(appearanceUniforms)) {
+                // Convert to uniform map of functions for the renderer
+                for (var name in appearanceUniforms) {
+                    if (appearanceUniforms.hasOwnProperty(name)) {
+                        if (defined(materialUniformMap) && defined(materialUniformMap[name])) {
+                            // Later, we could rename uniforms behind-the-scenes if needed.
+                            throw new DeveloperError('Appearance and material have a uniform with the same name: ' + name);
+                        }
+
+                        appearanceUniformMap[name] = getUniformFunction(appearanceUniforms, name);
+                    }
+                }
+            }
+            var uniforms = combine(appearanceUniformMap, materialUniformMap);
+
             var pass = translucent ? Pass.TRANSLUCENT : Pass.OPAQUE;
 
             colorCommands.length = this._va.length * (twoPasses ? 2 : 1);
@@ -1051,40 +1215,48 @@ define([
             attributes.length = 0;
         }
 
-        var modelMatrix;
-        if (this._numberOfInstances > 1 || frameState.mode !== SceneMode.SCENE3D) {
-            modelMatrix = Matrix4.IDENTITY;
-        } else {
-            modelMatrix = this.modelMatrix;
+        var modelMatrix = this.modelMatrix;
+        //>>includeStart('debug', pragmas.debug);
+        if (frameState.mode !== SceneMode.SCENE3D && !Matrix4.equals(modelMatrix, Matrix4.IDENTITY)) {
+            throw new DeveloperError('Primitive.modelMatrix is only supported in 3D mode.');
         }
+        //>>includeEnd('debug');
 
         if (!Matrix4.equals(modelMatrix, this._modelMatrix)) {
             Matrix4.clone(modelMatrix, this._modelMatrix);
-            this._boundingSphereWC = BoundingSphere.transform(this._boundingSphere, modelMatrix, this._boundingSphereWC);
-            if (!scene3DOnly && defined(this._boundingSphere)) {
-                this._boundingSphereCV = BoundingSphere.projectTo2D(this._boundingSphereWC, projection, this._boundingSphereCV);
-                this._boundingSphere2D = BoundingSphere.clone(this._boundingSphereCV, this._boundingSphere2D);
-                this._boundingSphere2D.center.x = 0.0;
+            length = this._boundingSpheres.length;
+            for (i = 0; i < length; ++i) {
+                var boundingSphere = this._boundingSpheres[i];
+                if (defined(boundingSphere)) {
+                    this._boundingSphereWC[i] = BoundingSphere.transform(boundingSphere, modelMatrix, this._boundingSphereWC[i]);
+                    if (!scene3DOnly) {
+                        this._boundingSphere2D[i] = BoundingSphere.clone(this._boundingSphereCV[i], this._boundingSphere2D[i]);
+                        this._boundingSphere2D[i].center.x = 0.0;
+                        this._boundingSphereMorph[i] = BoundingSphere.union(this._boundingSphereWC[i], this._boundingSphereCV[i]);
+                    }
+                }
             }
         }
 
-        var boundingSphere;
+        var boundingSpheres;
         if (frameState.mode === SceneMode.SCENE3D) {
-            boundingSphere = this._boundingSphereWC;
+            boundingSpheres = this._boundingSphereWC;
         } else if (frameState.mode === SceneMode.COLUMBUS_VIEW) {
-            boundingSphere = this._boundingSphereCV;
+            boundingSpheres = this._boundingSphereCV;
         } else if (frameState.mode === SceneMode.SCENE2D && defined(this._boundingSphere2D)) {
-            boundingSphere = this._boundingSphere2D;
-        } else if (defined(this._boundingSphereWC) && defined(this._boundingSphereCV)) {
-            boundingSphere = BoundingSphere.union(this._boundingSphereWC, this._boundingSphereCV);
+            boundingSpheres = this._boundingSphere2D;
+        } else if (defined(this._boundingSphereMorph)) {
+            boundingSpheres = this._boundingSphereMorph;
         }
 
         var passes = frameState.passes;
         if (passes.render) {
             length = colorCommands.length;
             for (i = 0; i < length; ++i) {
+                var sphereIndex = twoPasses ? Math.floor(i / 2) : i;
                 colorCommands[i].modelMatrix = modelMatrix;
-                colorCommands[i].boundingVolume = boundingSphere;
+                colorCommands[i].boundingVolume = boundingSpheres[sphereIndex];
+                colorCommands[i].cull = this.cull;
                 colorCommands[i].debugShowBoundingVolume = this.debugShowBoundingVolume;
 
                 commandList.push(colorCommands[i]);
@@ -1095,7 +1267,8 @@ define([
             length = pickCommands.length;
             for (i = 0; i < length; ++i) {
                 pickCommands[i].modelMatrix = modelMatrix;
-                pickCommands[i].boundingVolume = boundingSphere;
+                pickCommands[i].boundingVolume = boundingSpheres[i];
+                pickCommands[i].cull = this.cull;
 
                 commandList.push(pickCommands[i]);
             }
@@ -1103,8 +1276,12 @@ define([
     };
 
     function createGetFunction(name, perInstanceAttributes) {
+        var attribute = perInstanceAttributes[name];
         return function() {
-            return perInstanceAttributes[name].value;
+            if (defined(attribute) && defined(attribute.value)) {
+                return perInstanceAttributes[name].value;
+            }
+            return attribute;
         };
     }
 
@@ -1118,7 +1295,7 @@ define([
 
             var attribute = perInstanceAttributes[name];
             attribute.value = value;
-            if (!attribute.dirty) {
+            if (!attribute.dirty && attribute.valid) {
                 dirtyList.push(attribute);
                 attribute.dirty = true;
             }
@@ -1163,9 +1340,13 @@ define([
         if (index === -1) {
             return undefined;
         }
+        var attributes = this._perInstanceAttributeCache[index];
+        if (defined(attributes)) {
+            return attributes;
+        }
 
         var perInstanceAttributes = this._perInstanceAttributeLocations[index];
-        var attributes = {};
+        attributes = {};
         var properties = {};
         var hasProperties = false;
 
@@ -1173,9 +1354,12 @@ define([
             if (perInstanceAttributes.hasOwnProperty(name)) {
                 hasProperties = true;
                 properties[name] = {
-                    get : createGetFunction(name, perInstanceAttributes),
-                    set : createSetFunction(name, perInstanceAttributes, this._dirtyAttributes)
+                    get : createGetFunction(name, perInstanceAttributes)
                 };
+
+                if (name !== 'boundingSphere' && name !== 'boundingSphereCV') {
+                    properties[name].set = createSetFunction(name, perInstanceAttributes, this._dirtyAttributes);
+                }
             }
         }
 
@@ -1184,7 +1368,7 @@ define([
         }
 
         this._lastPerInstanceAttributeIndex = index;
-
+        this._perInstanceAttributeCache[index] = attributes;
         return attributes;
     };
 
@@ -1244,6 +1428,19 @@ define([
 
         return destroyObject(this);
     };
+
+    function setReady(primitive, frameState, state, error) {
+        primitive._error = error;
+        primitive._state = state;
+        frameState.afterRender.push(function() {
+            primitive._ready = primitive._state === PrimitiveState.COMPLETE || primitive._state === PrimitiveState.FAILED;
+            if (!defined(error)) {
+                primitive._readyPromise.resolve(primitive);
+            } else {
+                primitive._readyPromise.reject(error);
+            }
+        });
+    }
 
     return Primitive;
 });

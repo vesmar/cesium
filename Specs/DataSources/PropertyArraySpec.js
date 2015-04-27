@@ -10,7 +10,7 @@ defineSuite([
         ConstantProperty,
         SampledProperty) {
     "use strict";
-    /*global jasmine,describe,xdescribe,it,xit,expect,beforeEach,afterEach,beforeAll,afterAll,spyOn,runs,waits,waitsFor*/
+    /*global jasmine,describe,xdescribe,it,xit,expect,beforeEach,afterEach,beforeAll,afterAll,spyOn*/
 
     var time = JulianDate.now();
 
@@ -27,7 +27,7 @@ defineSuite([
         expect(property.getValue(time)).toEqual(expected);
     });
 
-    it('setValue rasies definitionChanged event', function() {
+    it('setValue raises definitionChanged event', function() {
         var property = new PropertyArray();
         var listener = jasmine.createSpy('listener');
         property.definitionChanged.addEventListener(listener);

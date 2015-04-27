@@ -9,6 +9,7 @@ defineSuite([
         'Core/defined',
         'Core/destroyObject',
         'Core/GeometryPipeline',
+        'Core/loadImage',
         'Core/Math',
         'Core/Matrix4',
         'Renderer/BufferUsage',
@@ -20,7 +21,7 @@ defineSuite([
         'Scene/Pass',
         'Scene/TextureAtlas',
         'Specs/createScene',
-        'Specs/destroyScene'
+        'ThirdParty/when'
     ], 'Scene/Multifrustum', function(
         BoundingSphere,
         BoxGeometry,
@@ -31,6 +32,7 @@ defineSuite([
         defined,
         destroyObject,
         GeometryPipeline,
+        loadImage,
         CesiumMath,
         Matrix4,
         BufferUsage,
@@ -42,9 +44,9 @@ defineSuite([
         Pass,
         TextureAtlas,
         createScene,
-        destroyScene) {
+        when) {
     "use strict";
-    /*global jasmine,describe,xdescribe,it,xit,expect,beforeEach,afterEach,beforeAll,afterAll,spyOn,runs,waits,waitsFor*/
+    /*global jasmine,describe,xdescribe,it,xit,expect,beforeEach,afterEach,beforeAll,afterAll,spyOn*/
 
     var scene;
     var context;
@@ -54,6 +56,19 @@ defineSuite([
     var greenImage;
     var blueImage;
     var whiteImage;
+
+    beforeAll(function() {
+        return when.join(
+            loadImage('./Data/Images/Green.png').then(function(image) {
+                greenImage = image;
+            }),
+            loadImage('./Data/Images/Blue.png').then(function(image) {
+                blueImage = image;
+            }),
+            loadImage('./Data/Images/White.png').then(function(image) {
+                whiteImage = image;
+            }));
+    });
 
     beforeEach(function() {
         scene = createScene();
@@ -70,24 +85,11 @@ defineSuite([
         camera.frustum.far = 1000000000.0;
         camera.frustum.fov = CesiumMath.toRadians(60.0);
         camera.frustum.aspectRatio = 1.0;
-
-        greenImage = new Image();
-        greenImage.src = './Data/Images/Green.png';
-
-        blueImage = new Image();
-        blueImage.src = './Data/Images/Blue.png';
-
-        whiteImage = new Image();
-        whiteImage.src = './Data/Images/White.png';
-
-        waitsFor(function() {
-            return greenImage.complete && blueImage.complete && whiteImage.complete;
-        }, 'Load .png file(s) for billboard collection test.', 3000);
     });
 
     afterEach(function() {
         atlas = atlas && atlas.destroy();
-        destroyScene(scene);
+        scene.destroyForSpecs();
     });
 
     var billboard0;
@@ -140,17 +142,13 @@ defineSuite([
     it('renders primitive in closest frustum', function() {
         createBillboards();
 
-        scene.initializeFrame();
-        scene.render();
-        var pixels = context.readPixels();
+        var pixels = scene.renderForSpecs();
         expect(pixels[0]).toEqual(0);
         expect(pixels[1]).not.toEqual(0);
         expect(pixels[2]).toEqual(0);
         expect(pixels[3]).toEqual(255);
 
-        scene.initializeFrame();
-        scene.render();
-        pixels = context.readPixels();
+        pixels = scene.renderForSpecs();
         expect(pixels[0]).toEqual(0);
         expect(pixels[1]).not.toEqual(0);
         expect(pixels[2]).toEqual(0);
@@ -161,13 +159,8 @@ defineSuite([
         createBillboards();
         billboard0.color = new Color(1.0, 1.0, 1.0, 0.0);
 
-        scene.initializeFrame();
-        scene.render();
-        expect(context.readPixels()).toEqual([0, 0, 255, 255]);
-
-        scene.initializeFrame();
-        scene.render();
-        expect(context.readPixels()).toEqual([0, 0, 255, 255]);
+        expect(scene.renderForSpecs()).toEqual([0, 0, 255, 255]);
+        expect(scene.renderForSpecs()).toEqual([0, 0, 255, 255]);
     });
 
     it('renders primitive in last frustum', function() {
@@ -176,13 +169,8 @@ defineSuite([
         billboard0.color = color;
         billboard1.color = color;
 
-        scene.initializeFrame();
-        scene.render();
-        expect(context.readPixels()).toEqual([255, 255, 255, 255]);
-
-        scene.initializeFrame();
-        scene.render();
-        expect(context.readPixels()).toEqual([255, 255, 255, 255]);
+        expect(scene.renderForSpecs()).toEqual([255, 255, 255, 255]);
+        expect(scene.renderForSpecs()).toEqual([255, 255, 255, 255]);
     });
 
     it('renders primitive in last frustum with debugShowFrustums', function() {
@@ -194,13 +182,12 @@ defineSuite([
         spyOn(DrawCommand.prototype, 'execute');
 
         scene.debugShowFrustums = true;
-        scene.initializeFrame();
-        scene.render();
+        scene.renderForSpecs();
 
         expect(DrawCommand.prototype.execute).toHaveBeenCalled();
-        expect(DrawCommand.prototype.execute.mostRecentCall.args.length).toEqual(4);
-        expect(DrawCommand.prototype.execute.mostRecentCall.args[3]).toBeDefined();
-        expect(DrawCommand.prototype.execute.mostRecentCall.args[3].fragmentShaderSource.sources[1]).toContain('czm_Debug_main');
+        expect(DrawCommand.prototype.execute.calls.mostRecent().args.length).toEqual(4);
+        expect(DrawCommand.prototype.execute.calls.mostRecent().args[3]).toBeDefined();
+        expect(DrawCommand.prototype.execute.calls.mostRecent().args[3].fragmentShaderSource.sources[1]).toContain('czm_Debug_main');
     });
 
     function createPrimitive(bounded, closestFrustum) {
@@ -287,13 +274,8 @@ defineSuite([
         var primitive = createPrimitive(false);
         primitives.add(primitive);
 
-        scene.initializeFrame();
-        scene.render();
-        expect(context.readPixels()).toEqual([255, 255, 0, 255]);
-
-        scene.initializeFrame();
-        scene.render();
-        expect(context.readPixels()).toEqual([255, 255, 0, 255]);
+        expect(scene.renderForSpecs()).toEqual([255, 255, 0, 255]);
+        expect(scene.renderForSpecs()).toEqual([255, 255, 0, 255]);
     });
 
     it('renders only in the closest frustum', function() {
@@ -307,17 +289,13 @@ defineSuite([
         primitive.color = new Color(1.0, 1.0, 0.0, 0.5);
         primitives.add(primitive);
 
-        scene.initializeFrame();
-        scene.render();
-        var pixels = context.readPixels();
+        var pixels = scene.renderForSpecs();
         expect(pixels[0]).not.toEqual(0);
         expect(pixels[1]).not.toEqual(0);
         expect(pixels[2]).toEqual(0);
         expect(pixels[3]).toEqual(255);
 
-        scene.initializeFrame();
-        scene.render();
-        pixels = context.readPixels();
+        pixels = scene.renderForSpecs();
         expect(pixels[0]).not.toEqual(0);
         expect(pixels[1]).not.toEqual(0);
         expect(pixels[2]).toEqual(0);
@@ -325,8 +303,7 @@ defineSuite([
     });
 
     it('render without a central body or any primitives', function() {
-        scene.initializeFrame();
-        scene.render();
+        scene.renderForSpecs();
     });
 
     it('does not crash when near plane is greater than or equal to the far plane', function() {
@@ -335,7 +312,6 @@ defineSuite([
         camera.position = new Cartesian3(0.0, 0.0, 1e12);
 
         createBillboards();
-        scene.initializeFrame();
-        scene.render();
+        scene.renderForSpecs();
     });
 }, 'WebGL');

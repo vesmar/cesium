@@ -5,16 +5,16 @@ defineSuite([
         'Core/Cartesian3',
         'Core/defaultValue',
         'Core/Ellipsoid',
+        'Core/GeographicProjection',
         'Core/Math',
         'Core/Rectangle',
+        'Core/RectangleGeometry',
         'Renderer/ClearCommand',
         'Scene/SceneMode',
         'Specs/createCamera',
         'Specs/createContext',
         'Specs/createFrameState',
         'Specs/createScene',
-        'Specs/destroyContext',
-        'Specs/destroyScene',
         'Specs/pick',
         'Specs/render'
     ], function(
@@ -23,20 +23,20 @@ defineSuite([
         Cartesian3,
         defaultValue,
         Ellipsoid,
+        GeographicProjection,
         CesiumMath,
         Rectangle,
+        RectangleGeometry,
         ClearCommand,
         SceneMode,
         createCamera,
         createContext,
         createFrameState,
         createScene,
-        destroyContext,
-        destroyScene,
         pick,
         render) {
     "use strict";
-    /*global jasmine,describe,xdescribe,it,xit,expect,beforeEach,afterEach,beforeAll,afterAll,spyOn,runs,waits,waitsFor*/
+    /*global jasmine,describe,xdescribe,it,xit,expect,beforeEach,afterEach,beforeAll,afterAll,spyOn*/
 
     var context;
     var frameState;
@@ -45,22 +45,21 @@ defineSuite([
 
     beforeAll(function() {
         context = createContext();
-        frameState = createFrameState();
     });
 
     afterAll(function() {
-        destroyContext(context);
+        context.destroyForSpecs();
     });
 
     beforeEach(function() {
         rectangle = new RectanglePrimitive();
 
+        frameState = createFrameState(createCamera({
+            offset : new Cartesian3(1.02, 0.0, 0.0)
+        }));
+
         us = context.uniformState;
-        us.update(context, createFrameState(createCamera({
-            eye : new Cartesian3(1.02, 0.0, 0.0),
-            target : Cartesian3.ZERO,
-            up : Cartesian3.UNIT_Z
-        })));
+        us.update(context, frameState);
     });
 
     afterEach(function() {
@@ -70,11 +69,12 @@ defineSuite([
 
     function createRectangle(options) {
         options = defaultValue(options, defaultValue.EMPTY_OBJECT);
+        var ellipsoid = defaultValue(options.ellipsoid, Ellipsoid.UNIT_SPHERE);
 
         var e = new RectanglePrimitive({
-            ellipsoid : Ellipsoid.UNIT_SPHERE,
+            ellipsoid : ellipsoid,
             granularity : CesiumMath.toRadians(20.0),
-            rectangle : Rectangle.fromDegrees(-50.0, -50.0, 50.0, 50.0),
+            rectangle : Rectangle.fromDegrees(-20.0, -20.0, 20.0, 20.0),
             id : options.id,
             asynchronous : false,
             debugShowBoundingVolume : options.debugShowBoundingVolume
@@ -138,25 +138,18 @@ defineSuite([
     });
 
     it('renders bounding volume with debugShowBoundingVolume', function() {
-        var scene = createScene();
-        scene.primitives.add(createRectangle({
+        var rectangle = createRectangle({
+            ellipsoid : Ellipsoid.WGS84,
             debugShowBoundingVolume : true
-        }));
+        });
 
-        var camera = scene.camera;
-        camera.position = new Cartesian3(1.02, 0.0, 0.0);
-        camera.direction = Cartesian3.negate(Cartesian3.UNIT_X, new Cartesian3());
-        camera.up = Cartesian3.clone(Cartesian3.UNIT_Z);
+        var commands = [];
+        rectangle.update(context, frameState, commands);
 
-        scene.initializeFrame();
-        scene.render();
-        var pixels = scene.context.readPixels();
-        expect(pixels[0]).not.toEqual(0);
-        expect(pixels[1]).toEqual(0);
-        expect(pixels[2]).toEqual(0);
-        expect(pixels[3]).toEqual(255);
-
-        destroyScene(scene);
+        expect(commands.length).toBeGreaterThan(0);
+        for (var i = 0; i < commands.length; ++i) {
+            expect(commands[i].debugShowBoundingVolume).toBe(true);
+        }
     });
 
     it('is picked', function() {
@@ -186,15 +179,21 @@ defineSuite([
     });
 
     it('test 3D bounding sphere', function() {
-        rectangle = createRectangle();
+        var ellipsoid = Ellipsoid.WGS84;
+        rectangle = createRectangle({
+            ellipsoid : ellipsoid
+        });
         var commandList = [];
         rectangle.update(context, frameState, commandList);
         var boundingVolume = commandList[0].boundingVolume;
-        expect(boundingVolume).toEqual(BoundingSphere.fromRectangle3D(rectangle.rectangle, Ellipsoid.UNIT_SPHERE));
+        expect(boundingVolume).toEqual(BoundingSphere.fromRectangle3D(rectangle.rectangle, ellipsoid));
     });
 
     it('test Columbus view bounding sphere', function() {
-        rectangle = createRectangle();
+        var ellipsoid = Ellipsoid.WGS84;
+        rectangle = createRectangle({
+            ellipsoid : ellipsoid
+        });
 
         var mode = frameState.mode;
         frameState.mode = SceneMode.COLUMBUS_VIEW;
@@ -203,12 +202,28 @@ defineSuite([
         var boundingVolume = commandList[0].boundingVolume;
         frameState.mode = mode;
 
-        var b3D = BoundingSphere.fromRectangle3D(rectangle.rectangle, Ellipsoid.UNIT_SPHERE);
-        expect(boundingVolume).toEqual(BoundingSphere.projectTo2D(b3D, frameState.mapProjection));
+        var rectangleGeometry = RectangleGeometry.createGeometry(new RectangleGeometry({
+            rectangle : rectangle.rectangle,
+            ellipsoid : ellipsoid
+        }));
+        var projectedPoints = [];
+        var projection = new GeographicProjection(ellipsoid);
+        for (var i = 0; i < rectangleGeometry.attributes.position.values.length; i += 3) {
+            var p = Cartesian3.fromArray(rectangleGeometry.attributes.position.values, i);
+            projectedPoints.push(projection.project(ellipsoid.cartesianToCartographic(p)));
+        }
+
+        var expected = BoundingSphere.fromPoints(projectedPoints);
+        expected.center = Cartesian3.fromElements(expected.center.z, expected.center.x, expected.center.y);
+        expect(boundingVolume.center).toEqualEpsilon(expected.center, CesiumMath.EPSILON9);
+        expect(boundingVolume.radius).toEqualEpsilon(expected.radius, CesiumMath.EPSILON9);
     });
 
     it('test 2D bounding sphere', function() {
-        rectangle = createRectangle();
+        var ellipsoid = Ellipsoid.WGS84;
+        rectangle = createRectangle({
+            ellipsoid : ellipsoid
+        });
 
         var mode = frameState.mode;
         frameState.mode = SceneMode.SCENE2D;
@@ -217,10 +232,21 @@ defineSuite([
         var boundingVolume = commandList[0].boundingVolume;
         frameState.mode = mode;
 
-        var b3D = BoundingSphere.fromRectangle3D(rectangle.rectangle, Ellipsoid.UNIT_SPHERE);
-        var b2D = BoundingSphere.projectTo2D(b3D, frameState.mapProjection);
-        b2D.center.x = 0.0;
-        expect(boundingVolume).toEqual(b2D);
+        var rectangleGeometry = RectangleGeometry.createGeometry(new RectangleGeometry({
+            rectangle : rectangle.rectangle,
+            ellipsoid : ellipsoid
+        }));
+        var projectedPoints = [];
+        var projection = new GeographicProjection(ellipsoid);
+        for (var i = 0; i < rectangleGeometry.attributes.position.values.length; i += 3) {
+            var p = Cartesian3.fromArray(rectangleGeometry.attributes.position.values, i);
+            projectedPoints.push(projection.project(ellipsoid.cartesianToCartographic(p)));
+        }
+
+        var expected = BoundingSphere.fromPoints(projectedPoints);
+        expected.center = Cartesian3.fromElements(0.0, expected.center.x, expected.center.y);
+        expect(boundingVolume.center).toEqualEpsilon(expected.center, CesiumMath.EPSILON9);
+        expect(boundingVolume.radius).toEqualEpsilon(expected.radius, CesiumMath.EPSILON9);
     });
 
     it('isDestroyed', function() {

@@ -6,12 +6,12 @@ define([
         'Cesium/Core/queryToObject',
         'Cesium/DataSources/CzmlDataSource',
         'Cesium/DataSources/GeoJsonDataSource',
+        'Cesium/DataSources/KmlDataSource',
         'Cesium/DataSources/VideoMaterialProperty',
         'Cesium/Scene/TileMapServiceImageryProvider',
         'Cesium/Widgets/Viewer/Viewer',
         'Cesium/Widgets/Viewer/viewerCesiumInspectorMixin',
         'Cesium/Widgets/Viewer/viewerDragDropMixin',
-        'Cesium/Widgets/Viewer/viewerEntityMixin',
         'domReady!'
     ], function(
         defined,
@@ -20,12 +20,12 @@ define([
         queryToObject,
         CzmlDataSource,
         GeoJsonDataSource,
+        KmlDataSource,
         VideoMaterialProperty,
         TileMapServiceImageryProvider,
         Viewer,
         viewerCesiumInspectorMixin,
-        viewerDragDropMixin,
-        viewerEntityMixin) {
+        viewerDragDropMixin) {
     "use strict";
     /*global console*/
 
@@ -66,7 +66,6 @@ define([
     VideoMaterialProperty.context = viewer.scene._context;
 
     viewer.extend(viewerDragDropMixin);
-    viewer.extend(viewerEntityMixin);
     if (endUserOptions.inspector) {
         viewer.extend(viewerCesiumInspectorMixin);
     }
@@ -92,23 +91,20 @@ define([
 
     var source = endUserOptions.source;
     if (defined(source)) {
-        var dataSource;
         var loadPromise;
 
         if (/\.czml$/i.test(source)) {
-            dataSource = new CzmlDataSource(getFilenameFromUri(source));
-            loadPromise = dataSource.loadUrl(source);
+            loadPromise = CzmlDataSource.load(source);
         } else if (/\.geojson$/i.test(source) || /\.json$/i.test(source) || /\.topojson$/i.test(source)) {
-            dataSource = new GeoJsonDataSource(getFilenameFromUri(source));
-            loadPromise = dataSource.loadUrl(source);
+            loadPromise = GeoJsonDataSource.load(source);
+        } else if (/\.kml$/i.test(source) || /\.kmz$/i.test(source)) {
+            loadPromise = KmlDataSource.load(source);
         } else {
             showLoadError(source, 'Unknown format.');
         }
 
-        if (defined(dataSource)) {
-            viewer.dataSources.add(dataSource);
-
-            loadPromise.then(function() {
+        if (defined(loadPromise)) {
+            viewer.dataSources.add(loadPromise).then(function(dataSource) {
                 var lookAt = endUserOptions.lookAt;
                 if (defined(lookAt)) {
                     var entity = dataSource.entities.getById(lookAt);

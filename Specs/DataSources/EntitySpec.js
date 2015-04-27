@@ -1,31 +1,149 @@
 /*global defineSuite*/
 defineSuite([
         'DataSources/Entity',
+        'Core/Cartesian3',
         'Core/JulianDate',
+        'Core/Matrix3',
+        'Core/Matrix4',
+        'Core/Quaternion',
         'Core/TimeInterval',
         'Core/TimeIntervalCollection',
-        'DataSources/ConstantProperty'
+        'Core/Transforms',
+        'DataSources/BillboardGraphics',
+        'DataSources/BoxGraphics',
+        'DataSources/ConstantPositionProperty',
+        'DataSources/ConstantProperty',
+        'DataSources/CorridorGraphics',
+        'DataSources/CylinderGraphics',
+        'DataSources/EllipseGraphics',
+        'DataSources/EllipsoidGraphics',
+        'DataSources/LabelGraphics',
+        'DataSources/ModelGraphics',
+        'DataSources/PathGraphics',
+        'DataSources/PointGraphics',
+        'DataSources/PolygonGraphics',
+        'DataSources/PolylineGraphics',
+        'DataSources/PolylineVolumeGraphics',
+        'DataSources/RectangleGraphics',
+        'DataSources/WallGraphics'
     ], function(
         Entity,
+        Cartesian3,
         JulianDate,
+        Matrix3,
+        Matrix4,
+        Quaternion,
         TimeInterval,
         TimeIntervalCollection,
-        ConstantProperty) {
+        Transforms,
+        BillboardGraphics,
+        BoxGraphics,
+        ConstantPositionProperty,
+        ConstantProperty,
+        CorridorGraphics,
+        CylinderGraphics,
+        EllipseGraphics,
+        EllipsoidGraphics,
+        LabelGraphics,
+        ModelGraphics,
+        PathGraphics,
+        PointGraphics,
+        PolygonGraphics,
+        PolylineGraphics,
+        PolylineVolumeGraphics,
+        RectangleGraphics,
+        WallGraphics) {
     "use strict";
-    /*global jasmine,describe,xdescribe,it,xit,expect,beforeEach,afterEach,beforeAll,afterAll,spyOn,runs,waits,waitsFor*/
+    /*global jasmine,describe,xdescribe,it,xit,expect,beforeEach,afterEach,beforeAll,afterAll,spyOn*/
 
-    it('constructor sets id.', function() {
-        var entity = new Entity('someId');
-        expect(entity.id).toEqual('someId');
+    it('constructor sets expected properties.', function() {
+        var entity = new Entity();
+        expect(entity.id).toBeDefined();
+        expect(entity.name).toBeUndefined();
+        expect(entity.billboard).toBeUndefined();
+        expect(entity.box).toBeUndefined();
+        expect(entity.corridor).toBeUndefined();
+        expect(entity.cylinder).toBeUndefined();
+        expect(entity.description).toBeUndefined();
+        expect(entity.ellipse).toBeUndefined();
+        expect(entity.ellipsoid).toBeUndefined();
+        expect(entity.label).toBeUndefined();
+        expect(entity.model).toBeUndefined();
+        expect(entity.orientation).toBeUndefined();
+        expect(entity.path).toBeUndefined();
+        expect(entity.point).toBeUndefined();
+        expect(entity.polygon).toBeUndefined();
+        expect(entity.polyline).toBeUndefined();
+        expect(entity.polylineVolume).toBeUndefined();
+        expect(entity.position).toBeUndefined();
+        expect(entity.rectangle).toBeUndefined();
+        expect(entity.viewFrom).toBeUndefined();
+        expect(entity.wall).toBeUndefined();
+
+        var options = {
+            id : 'someId',
+            name : 'bob',
+            show : false,
+            availability : new TimeIntervalCollection(),
+            parent : new Entity(),
+            customProperty : {},
+            billboard : {},
+            box : {},
+            corridor : {},
+            cylinder : {},
+            description : 'description',
+            ellipse : {},
+            ellipsoid : {},
+            label : {},
+            model : {},
+            orientation : new Quaternion(1, 2, 3, 4),
+            path : {},
+            point : {},
+            polygon : {},
+            polyline : {},
+            polylineVolume : {},
+            position : new Cartesian3(5, 6, 7),
+            rectangle : {},
+            viewFrom : new Cartesian3(8, 9, 10),
+            wall : {}
+        };
+
+        entity = new Entity(options);
+        expect(entity.id).toEqual(options.id);
+        expect(entity.name).toEqual(options.name);
+        expect(entity.show).toBe(options.show);
+        expect(entity.availability).toBe(options.availability);
+        expect(entity.parent).toBe(options.parent);
+        expect(entity.customProperty).toBe(options.customProperty);
+
+        expect(entity.billboard).toBeInstanceOf(BillboardGraphics);
+        expect(entity.box).toBeInstanceOf(BoxGraphics);
+        expect(entity.corridor).toBeInstanceOf(CorridorGraphics);
+        expect(entity.cylinder).toBeInstanceOf(CylinderGraphics);
+        expect(entity.description).toBeInstanceOf(ConstantProperty);
+        expect(entity.ellipse).toBeInstanceOf(EllipseGraphics);
+        expect(entity.ellipsoid).toBeInstanceOf(EllipsoidGraphics);
+        expect(entity.label).toBeInstanceOf(LabelGraphics);
+        expect(entity.model).toBeInstanceOf(ModelGraphics);
+        expect(entity.orientation).toBeInstanceOf(ConstantProperty);
+        expect(entity.path).toBeInstanceOf(PathGraphics);
+        expect(entity.point).toBeInstanceOf(PointGraphics);
+        expect(entity.polygon).toBeInstanceOf(PolygonGraphics);
+        expect(entity.polyline).toBeInstanceOf(PolylineGraphics);
+        expect(entity.polylineVolume).toBeInstanceOf(PolylineVolumeGraphics);
+        expect(entity.position).toBeInstanceOf(ConstantPositionProperty);
+        expect(entity.rectangle).toBeInstanceOf(RectangleGraphics);
+        expect(entity.viewFrom).toBeInstanceOf(ConstantProperty);
+        expect(entity.wall).toBeInstanceOf(WallGraphics);
     });
 
     it('isAvailable is always true if no availability defined.', function() {
-        var entity = new Entity('someId');
+        var entity = new Entity();
         expect(entity.isAvailable(JulianDate.now())).toEqual(true);
     });
 
     it('isAvailable throw if no time specified.', function() {
-        var entity = new Entity('someId');
+        var entity = new Entity();
         expect(function() {
             entity.isAvailable();
         }).toThrowDeveloperError();
@@ -35,7 +153,7 @@ defineSuite([
         var object = new Entity();
         var object2 = new Entity();
         expect(object.id).toBeDefined();
-        expect(object.id).toNotEqual(object2.id);
+        expect(object.id).not.toEqual(object2.id);
     });
 
     it('isAvailable works.', function() {
@@ -97,16 +215,20 @@ defineSuite([
         var propertyName = 'customProperty';
         var value = 'fizzbuzz';
 
-        var source = new Entity('source');
+        var source = new Entity({
+            id : 'source'
+        });
         source.addProperty(propertyName);
         source[propertyName] = value;
 
         var listener = jasmine.createSpy('listener');
 
-        var target = new Entity('target');
+        var target = new Entity({
+            id : 'target'
+        });
 
         //Merging should actually call addProperty for the customProperty.
-        spyOn(target, 'addProperty').andCallThrough();
+        spyOn(target, 'addProperty').and.callThrough();
         target.merge(source);
 
         expect(target.addProperty).toHaveBeenCalledWith(propertyName);
@@ -118,6 +240,49 @@ defineSuite([
         expect(function() {
             entity.merge(undefined);
         }).toThrowDeveloperError();
+    });
+
+    it('_getModelMatrix returns undefined when position is undefined.', function() {
+        var entity = new Entity();
+        entity.orientation = new ConstantProperty(Quaternion.IDENTITY);
+        expect(entity._getModelMatrix(new JulianDate())).toBeUndefined();
+    });
+
+    it('_getModelMatrix returns correct value.', function() {
+        var entity = new Entity();
+
+        var position = new Cartesian3(123456, 654321, 123456);
+        var orientation = new Quaternion(1, 2, 3, 4);
+        Quaternion.normalize(orientation, orientation);
+
+        entity.position = new ConstantProperty(position);
+        entity.orientation = new ConstantProperty(orientation);
+
+        var modelMatrix = entity._getModelMatrix(new JulianDate());
+        var expected = Matrix4.fromRotationTranslation(Matrix3.fromQuaternion(orientation), position);
+        expect(modelMatrix).toEqual(expected);
+    });
+
+    it('_getModelMatrix returns ENU when quaternion is undefined.', function() {
+        var entity = new Entity();
+        var position = new Cartesian3(123456, 654321, 123456);
+        entity.position = new ConstantProperty(position);
+
+        var modelMatrix = entity._getModelMatrix(new JulianDate());
+        var expected = Transforms.eastNorthUpToFixedFrame(position);
+        expect(modelMatrix).toEqual(expected);
+    });
+
+    it('_getModelMatrix works with result parameter.', function() {
+        var entity = new Entity();
+        var position = new Cartesian3(123456, 654321, 123456);
+        entity.position = new ConstantProperty(position);
+
+        var result = new Matrix4();
+        var modelMatrix = entity._getModelMatrix(new JulianDate(), result);
+        var expected = Transforms.eastNorthUpToFixedFrame(position);
+        expect(modelMatrix).toBe(result);
+        expect(modelMatrix).toEqual(expected);
     });
 
     it('can add and remove custom properties.', function() {
@@ -193,5 +358,92 @@ defineSuite([
         expect(function() {
             entity.removeProperty('name');
         }).toThrowDeveloperError();
+    });
+
+    it('isShowing works without parent.', function() {
+        var entity = new Entity({
+            show : false
+        });
+        expect(entity.isShowing).toBe(false);
+
+        var listener = jasmine.createSpy('listener');
+        entity.definitionChanged.addEventListener(listener);
+
+        entity.show = true;
+        expect(listener.calls.count()).toBe(2);
+        expect(listener.calls.argsFor(0)).toEqual([entity, 'isShowing', true, false]);
+        expect(listener.calls.argsFor(1)).toEqual([entity, 'show', true, false]);
+        expect(entity.isShowing).toBe(true);
+
+        listener.calls.reset();
+
+        entity.show = false;
+        expect(listener.calls.count()).toBe(2);
+        expect(listener.calls.argsFor(0)).toEqual([entity, 'isShowing', false, true]);
+        expect(listener.calls.argsFor(1)).toEqual([entity, 'show', false, true]);
+        expect(entity.isShowing).toBe(false);
+    });
+
+    it('isShowing works with parent.', function() {
+        var entity = new Entity();
+        entity.parent = new Entity();
+
+        var listener = jasmine.createSpy('listener');
+        entity.definitionChanged.addEventListener(listener);
+
+        entity.parent.show = false;
+
+        //Setting entity.parent show to false causes entity to raise
+        //its own isShowing event, but not the show event.
+        expect(listener.calls.count()).toBe(1);
+        expect(listener.calls.argsFor(0)).toEqual([entity, 'isShowing', false, true]);
+        expect(entity.show).toBe(true);
+        expect(entity.isShowing).toBe(false);
+
+        listener.calls.reset();
+
+        //Since isShowing is already false, setting show to false causes the show event
+        //but not the isShowing event to be raised
+        entity.show = false;
+        expect(entity.show).toBe(false);
+        expect(listener.calls.count()).toBe(1);
+        expect(listener.calls.argsFor(0)).toEqual([entity, 'show', false, true]);
+
+        listener.calls.reset();
+
+        //Setting parent show to true does not trigger the entity.isShowing event
+        //because entity.show is false;
+        entity.parent.show = true;
+        expect(entity.show).toBe(false);
+        expect(entity.isShowing).toBe(false);
+        expect(listener.calls.count()).toBe(0);
+
+        listener.calls.reset();
+
+        //Setting entity.show to try now causes both events to be raised
+        //because the parent is also showing.
+        entity.show = true;
+        expect(listener.calls.count()).toBe(2);
+        expect(listener.calls.argsFor(0)).toEqual([entity, 'isShowing', true, false]);
+        expect(listener.calls.argsFor(1)).toEqual([entity, 'show', true, false]);
+        expect(entity.show).toBe(true);
+        expect(entity.isShowing).toBe(true);
+    });
+
+    it('isShowing works when replacing parent.', function() {
+        var entity = new Entity();
+        entity.parent = new Entity();
+
+        var listener = jasmine.createSpy('listener');
+        entity.definitionChanged.addEventListener(listener);
+
+        entity.parent = new Entity({
+            show : false
+        });
+
+        expect(listener.calls.count()).toBe(2);
+        expect(listener.calls.argsFor(0)).toEqual([entity, 'isShowing', false, true]);
+        expect(entity.show).toBe(true);
+        expect(entity.isShowing).toBe(false);
     });
 });

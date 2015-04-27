@@ -30,13 +30,17 @@ html, body {
 }
 
 #toolbar, #galleryContainer {
+    -ms-user-select: none;
     -moz-user-select: -moz-none;  /* allows for re-enabling on sub-elements like the search box */
     -webkit-user-select: none;
+    user-select: none;
 }
 
 #search {
+    -ms-user-select: text;
     -moz-user-select: text;
     -webkit-user-select: text;
+    user-select: text;
  }
 
 .cesiumTitle {
@@ -198,6 +202,7 @@ a.linkButton:focus, a.linkButton:hover {
     font-weight: bold;
     background-color: #F42;
     border-radius: 3px;
+    border: none;
 }
 
 .CodeMirror pre.errorLine {
@@ -211,6 +216,7 @@ a.linkButton:focus, a.linkButton:hover {
     font-weight: bold;
     background-color: #FE2;
     border-radius: 3px;
+    border: none;
 }
 
 .CodeMirror pre.hintLine {
@@ -224,6 +230,7 @@ a.linkButton:focus, a.linkButton:hover {
     font-weight: bold;
     background-color: #2E2;
     border-radius: 3px;
+    border: none;
 }
 
 .CodeMirror pre.highlightLine {
@@ -237,6 +244,7 @@ a.linkButton:focus, a.linkButton:hover {
     font-weight: bold;
     background-color: #CEF;
     border-radius: 3px;
+    border: none;
 }
 
 .CodeMirror pre.searchLine {

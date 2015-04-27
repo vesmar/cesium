@@ -2,15 +2,13 @@
 defineSuite([
         'Widgets/SceneModePicker/SceneModePicker',
         'Specs/createScene',
-        'Specs/destroyScene',
-        'Specs/EventHelper'
+        'Specs/DomEventSimulator'
     ], function(
         SceneModePicker,
         createScene,
-        destroyScene,
-        EventHelper) {
+        DomEventSimulator) {
     "use strict";
-    /*global jasmine,describe,xdescribe,it,xit,expect,beforeEach,afterEach,beforeAll,afterAll,spyOn,runs,waits,waitsFor*/
+    /*global jasmine,describe,xdescribe,it,xit,expect,beforeEach,afterEach,beforeAll,afterAll,spyOn*/
 
     var scene;
 
@@ -19,7 +17,7 @@ defineSuite([
     });
 
     afterAll(function() {
-        destroyScene(scene);
+        scene.destroyForSpecs();
     });
 
     it('can create and destroy', function() {
@@ -45,11 +43,11 @@ defineSuite([
         var widget = new SceneModePicker('testContainer', scene);
 
         widget.viewModel.dropDownVisible = true;
-        EventHelper.fireMouseDown(document.body);
+        DomEventSimulator.fireMouseDown(document.body);
         expect(widget.viewModel.dropDownVisible).toEqual(false);
 
         widget.viewModel.dropDownVisible = true;
-        EventHelper.fireMouseDown(container.firstChild);
+        DomEventSimulator.fireMouseDown(container.firstChild);
         expect(widget.viewModel.dropDownVisible).toEqual(true);
 
         widget.destroy();
@@ -64,11 +62,11 @@ defineSuite([
         var widget = new SceneModePicker('testContainer', scene);
 
         widget.viewModel.dropDownVisible = true;
-        EventHelper.fireTouchStart(document.body);
+        DomEventSimulator.fireTouchStart(document.body);
         expect(widget.viewModel.dropDownVisible).toEqual(false);
 
         widget.viewModel.dropDownVisible = true;
-        EventHelper.fireTouchStart(container.firstChild);
+        DomEventSimulator.fireTouchStart(container.firstChild);
         expect(widget.viewModel.dropDownVisible).toEqual(true);
 
         widget.destroy();

@@ -5,24 +5,30 @@ defineSuite([
         'Core/EllipsoidTerrainProvider',
         'Core/ScreenSpaceEventHandler',
         'Core/WebMercatorProjection',
+        'Scene/Camera',
+        'Scene/ImageryLayerCollection',
         'Scene/Scene',
         'Scene/SceneMode',
         'Scene/SkyBox',
         'Scene/TileCoordinatesImageryProvider',
-        'Specs/EventHelper'
+        'Specs/DomEventSimulator',
+        'Specs/pollToPromise'
     ], function(
         CesiumWidget,
         Clock,
         EllipsoidTerrainProvider,
         ScreenSpaceEventHandler,
         WebMercatorProjection,
+        Camera,
+        ImageryLayerCollection,
         Scene,
         SceneMode,
         SkyBox,
         TileCoordinatesImageryProvider,
-        EventHelper) {
+        DomEventSimulator,
+        pollToPromise) {
     "use strict";
-    /*global jasmine,describe,xdescribe,it,xit,expect,beforeEach,afterEach,beforeAll,afterAll,spyOn,runs,waits,waitsFor*/
+    /*global jasmine,describe,xdescribe,it,xit,expect,beforeEach,afterEach,beforeAll,afterAll,spyOn*/
 
     var container;
     var widget;
@@ -50,6 +56,9 @@ defineSuite([
         expect(widget.canvas).toBeInstanceOf(HTMLElement);
         expect(widget.creditContainer).toBeInstanceOf(HTMLElement);
         expect(widget.scene).toBeInstanceOf(Scene);
+        expect(widget.imageryLayers).toBeInstanceOf(ImageryLayerCollection);
+        expect(widget.terrainProvider).toBeInstanceOf(EllipsoidTerrainProvider);
+        expect(widget.camera).toBeInstanceOf(Camera);
         expect(widget.clock).toBeInstanceOf(Clock);
         expect(widget.screenSpaceEventHandler).toBeInstanceOf(ScreenSpaceEventHandler);
         widget.render();
@@ -131,7 +140,32 @@ defineSuite([
             terrainProvider : new EllipsoidTerrainProvider()
         };
         widget = new CesiumWidget(container, options);
-        expect(widget.scene.terrainProvider).toBe(options.terrainProvider);
+        expect(widget.terrainProvider).toBe(options.terrainProvider);
+
+        var anotherProvider = new EllipsoidTerrainProvider();
+        widget.terrainProvider = anotherProvider;
+        expect(widget.terrainProvider).toBe(anotherProvider);
+    });
+
+    it('does not create a globe if option is false', function() {
+        widget = new CesiumWidget(container, {
+            globe : false
+        });
+        expect(widget.scene.globe).not.toBeDefined();
+    });
+
+    it('does not create a skyBox if option is false', function() {
+        widget = new CesiumWidget(container, {
+            skyBox : false
+        });
+        expect(widget.scene.skyBox).not.toBeDefined();
+    });
+
+    it('does not create a skyAtmosphere if option is false', function() {
+        widget = new CesiumWidget(container, {
+            skyAtmosphere : false
+        });
+        expect(widget.scene.skyAtmosphere).not.toBeDefined();
     });
 
     it('sets expected options skyBox', function() {
@@ -236,7 +270,7 @@ defineSuite([
             throw error;
         };
 
-        waitsFor(function() {
+        return pollToPromise(function() {
             return !widget.useDefaultRenderLoop;
         }, 'render loop to be disabled.');
     });
@@ -249,11 +283,9 @@ defineSuite([
             throw error;
         };
 
-        waitsFor(function() {
+        return pollToPromise(function() {
             return !widget.useDefaultRenderLoop;
-        });
-
-        runs(function() {
+        }).then(function() {
             expect(widget._element.querySelector('.cesium-widget-errorPanel')).not.toBeNull();
 
             var messages = widget._element.querySelectorAll('.cesium-widget-errorPanel-message');
@@ -268,7 +300,7 @@ defineSuite([
             expect(found).toBe(true);
 
             // click the OK button to dismiss the panel
-            EventHelper.fireClick(widget._element.querySelector('.cesium-button'));
+            DomEventSimulator.fireClick(widget._element.querySelector('.cesium-button'));
 
             expect(widget._element.querySelector('.cesium-widget-errorPanel')).toBeNull();
         });
@@ -284,11 +316,9 @@ defineSuite([
             throw error;
         };
 
-        waitsFor(function() {
+        return pollToPromise(function() {
             return !widget.useDefaultRenderLoop;
-        });
-
-        runs(function() {
+        }).then(function() {
             expect(widget._element.querySelector('.cesium-widget-errorPanel')).toBeNull();
         });
     });

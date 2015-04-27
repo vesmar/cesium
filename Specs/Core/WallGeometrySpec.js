@@ -4,15 +4,17 @@ defineSuite([
         'Core/Cartesian3',
         'Core/Ellipsoid',
         'Core/Math',
-        'Core/VertexFormat'
+        'Core/VertexFormat',
+        'Specs/createPackableSpecs'
     ], function(
         WallGeometry,
         Cartesian3,
         Ellipsoid,
         CesiumMath,
-        VertexFormat) {
+        VertexFormat,
+        createPackableSpecs) {
     "use strict";
-    /*global jasmine,describe,xdescribe,it,xit,expect,beforeEach,afterEach,beforeAll,afterAll,spyOn,runs,waits,waitsFor*/
+    /*global jasmine,describe,xdescribe,it,xit,expect,beforeEach,afterEach,beforeAll,afterAll,spyOn*/
 
     var ellipsoid = Ellipsoid.WGS84;
 
@@ -49,17 +51,15 @@ defineSuite([
         }).toThrowDeveloperError();
     });
 
-    it('throws with less than 2 unique positions', function() {
-        expect(function() {
-            return WallGeometry.createGeometry(new WallGeometry({
-                vertexFormat : VertexFormat.POSITION_ONLY,
-                positions    : Cartesian3.fromDegreesArrayHeights([
-                    49.0, 18.0, 1000.0,
-                    49.0, 18.0, 5000.0,
-                    49.0, 18.0, 1000.0
-                ])
-            }));
-        }).toThrowDeveloperError();
+    it('createGeometry returnes undefined with less than 2 unique positions', function() {
+        var geometry = WallGeometry.createGeometry(new WallGeometry({
+            positions : Cartesian3.fromDegreesArrayHeights([
+                49.0, 18.0, 1000.0,
+                49.0, 18.0, 5000.0,
+                49.0, 18.0, 1000.0
+            ])
+        }));
+        expect(geometry).not.toBeDefined();
     });
 
     it('does not throw when positions are unique but close', function() {
@@ -145,6 +145,32 @@ defineSuite([
         expect(cartographic.height).toEqualEpsilon(2000.0, CesiumMath.EPSILON8);
     });
 
+    it('does not clean positions that add up past EPSILON14', function() {
+        var eightyPercentOfEpsilon14 = 0.8 * CesiumMath.EPSILON14;
+        var inputPositions = Cartesian3.fromRadiansArrayHeights([
+            1.0, 1.0, 1000.0,
+            1.0, 1.0 + eightyPercentOfEpsilon14, 1000.0,
+            1.0, 1.0 + (2 * eightyPercentOfEpsilon14), 1000.0,
+            1.0, 1.0 + (3 * eightyPercentOfEpsilon14), 1000.0
+        ]);
+        var w = WallGeometry.createGeometry(new WallGeometry({
+            vertexFormat : VertexFormat.POSITION_ONLY,
+            positions    : inputPositions
+        }));
+        expect(w).toBeDefined();
+
+        var expectedPositions = Cartesian3.fromRadiansArrayHeights([
+            1.0, 1.0, 1000.0,
+            1.0, 1.0 + (2 * eightyPercentOfEpsilon14), 1000.0
+        ]);
+        var expectedW = WallGeometry.createGeometry(new WallGeometry({
+            vertexFormat : VertexFormat.POSITION_ONLY,
+            positions    : expectedPositions
+        }));
+        var positions = w.attributes.position.values;
+        expect(positions.length).toEqual(expectedW.attributes.position.values.length);
+    });
+
     it('cleans selects maximum height from duplicates', function() {
         var w = WallGeometry.createGeometry(new WallGeometry({
             vertexFormat : VertexFormat.POSITION_ONLY,
@@ -222,5 +248,15 @@ defineSuite([
         cartographic = ellipsoid.cartesianToCartographic(Cartesian3.fromArray(positions, 9));
         expect(cartographic.height).toEqualEpsilon(max, CesiumMath.EPSILON8);
     });
+
+    var positions = [new Cartesian3(1.0, 0.0, 0.0), new Cartesian3(0.0, 1.0, 0.0), new Cartesian3(0.0, 0.0, 1.0)];
+    var wall = new WallGeometry({
+        positions : positions,
+        vertexFormat : VertexFormat.POSITION_ONLY,
+        granularity : 0.01,
+        ellipsoid: Ellipsoid.UNIT_SPHERE
+    });
+    var packedInstance = [3.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.01];
+    createPackableSpecs(WallGeometry, wall, packedInstance);
 });
 
