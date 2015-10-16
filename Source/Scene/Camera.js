@@ -2077,6 +2077,64 @@ define([
     }
 
     /**
+     * Move the camera to the home view.  Use {@link Camera#.DEFAULT_VIEW_RECTANGLE} to set the default view for the 3D scene.
+     * The home view for 2D and columbus view show the whole map.
+     *
+     * @param {Number} [duration] The number of seconds to complete the camera flight to home.  See {@link Camera#flyTo}
+     *
+     */
+    Camera.prototype.viewHome = function(duration) {
+        var mode = this._mode;
+
+        if (mode === SceneMode.MORPHING) {
+            this._scene.completeMorph();
+        }
+
+        if (mode === SceneMode.SCENE2D) {
+            this.flyTo({
+                destination : Rectangle.MAX_VALUE,
+                endTransform : Matrix4.IDENTITY,
+                duration: duration
+            });
+        } else if (mode === SceneMode.SCENE3D) {
+            var destination = this.getRectangleCameraCoordinates(Camera.DEFAULT_VIEW_RECTANGLE);
+
+            var mag = Cartesian3.magnitude(destination);
+            mag += mag * Camera.DEFAULT_VIEW_FACTOR;
+            Cartesian3.normalize(destination, destination);
+            Cartesian3.multiplyByScalar(destination, mag, destination);
+
+            this.flyTo({
+                destination : destination,
+                orientation : {
+                    heading : 0.0,
+                    pitch : -Math.PI * 0.5,
+                    roll : 0.0
+                },
+                duration : duration,
+                endTransform : Matrix4.IDENTITY
+            });
+        } else if (mode === SceneMode.COLUMBUS_VIEW) {
+            var maxRadii = this._projection.ellipsoid.maximumRadius;
+            var position = new Cartesian3(0.0, -1.0, 1.0);
+            position = Cartesian3.multiplyByScalar(Cartesian3.normalize(position, position), 5.0 * maxRadii, position);
+            var pitch = -Math.acos(Cartesian3.normalize(position, new Cartesian3()).z);
+
+            this.flyTo({
+                destination : position,
+                duration : duration,
+                orientation : {
+                    heading : 0.0,
+                    pitch : pitch,
+                    roll : 0.0
+                },
+                endTransform : Matrix4.IDENTITY,
+                convert : false
+            });
+        }
+    };
+
+    /**
      * Pick an ellipsoid or map.
      *
      * @param {Cartesian2} windowPosition The x and y coordinates of a pixel.
