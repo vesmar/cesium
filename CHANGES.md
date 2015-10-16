@@ -21,6 +21,7 @@ Change Log
 * Fixed token issue in `ArcGisMapServerImageryProvider`.
 * `ImageryLayerFeatureInfo` now has an `imageryLayer` property, indicating the layer that contains the feature.
 * Added `BoxOutlineGeometry.fromAxisAlignedBoundingBox` and `BoxGeometry.fromAxisAlignedBoundingBox` functions.
+* Added `Camera.viewHome`, which flies the camera to the default home view.
 
 ### 1.14 - 2015-10-01
 
